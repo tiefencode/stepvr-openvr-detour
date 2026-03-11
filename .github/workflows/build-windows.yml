@@ -1,0 +1,50 @@
+name: build-openvr-detour
+
+on:
+  push:
+    branches: [ main ]
+  workflow_dispatch:
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
+jobs:
+  build:
+    runs-on: windows-2022
+
+    steps:
+      - name: checkout
+        uses: actions/checkout@v5
+
+      - name: setup msbuild
+        uses: microsoft/setup-msbuild@v2
+
+      - name: checkout openvr sdk
+        uses: actions/checkout@v5
+        with:
+          repository: ValveSoftware/openvr
+          path: openvr
+
+      - name: configure
+        shell: cmd
+        run: |
+          set OPENVR_SDK_ROOT=%CD%\openvr
+          cmake -S . -B build -G "Visual Studio 17 2022" -A x64
+
+      - name: build
+        shell: cmd
+        run: |
+          cmake --build build --config Release
+
+      - name: package
+        shell: powershell
+        run: |
+          New-Item -ItemType Directory -Force -Path dist | Out-Null
+          Copy-Item build\Release\stepvr_detour.dll dist\stepvr_detour.dll
+          Copy-Item README.md dist\README.md
+
+      - name: upload artifact
+        uses: actions/upload-artifact@v6
+        with:
+          name: stepvr-openvr-detour-windows
+          path: dist
