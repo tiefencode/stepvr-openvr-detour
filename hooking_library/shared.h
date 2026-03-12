@@ -34,4 +34,4 @@ void initialize(HMODULE module);
 
 bool obtain_vr_system_and_prepare();
 
-}
+} // namespace stepvr

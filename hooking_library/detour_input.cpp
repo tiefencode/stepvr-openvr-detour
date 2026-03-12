@@ -5,7 +5,6 @@
 #include "MinHook.h"
 
 #include <cmath>
-#include <cstring>
 #include <iomanip>
 #include <mutex>
 #include <sstream>
@@ -43,63 +42,44 @@ using GetOriginTrackedDeviceInfoFn =
                           uint32_t originInfoSize);
 #else
 using GetActionSetHandleFn =
-    vr::EVRInputError (__thiscall*)(void* self, const char* actionSetName, vr::VRActionSetHandle_t* handle);
-using HookGetActionSetHandleFn =
-    vr::EVRInputError (__fastcall*)(void* self, void* edx, const char* actionSetName, vr::VRActionSetHandle_t* handle);
-
+    vr::EVRInputError(__thiscall*)(void* self, const char* actionSetName, vr::VRActionSetHandle_t* handle);
 using GetActionHandleFn =
-    vr::EVRInputError (__thiscall*)(void* self, const char* actionName, vr::VRActionHandle_t* handle);
-using HookGetActionHandleFn =
-    vr::EVRInputError (__fastcall*)(void* self, void* edx, const char* actionName, vr::VRActionHandle_t* handle);
-
+    vr::EVRInputError(__thiscall*)(void* self, const char* actionName, vr::VRActionHandle_t* handle);
 using GetInputSourceHandleFn =
-    vr::EVRInputError (__thiscall*)(void* self, const char* inputSourcePath, vr::VRInputValueHandle_t* handle);
-using HookGetInputSourceHandleFn =
-    vr::EVRInputError (__fastcall*)(void* self, void* edx, const char* inputSourcePath, vr::VRInputValueHandle_t* handle);
-
+    vr::EVRInputError(__thiscall*)(void* self, const char* inputSourcePath, vr::VRInputValueHandle_t* handle);
 using UpdateActionStateFn =
-    vr::EVRInputError (__thiscall*)(void* self, vr::VRActiveActionSet_t* sets, uint32_t setSize, uint32_t setCount);
-using HookUpdateActionStateFn =
-    vr::EVRInputError (__fastcall*)(void* self, void* edx, vr::VRActiveActionSet_t* sets, uint32_t setSize, uint32_t setCount);
-
+    vr::EVRInputError(__thiscall*)(void* self, vr::VRActiveActionSet_t* sets, uint32_t setSize, uint32_t setCount);
 using GetAnalogActionDataFn =
-    vr::EVRInputError (__thiscall*)(void* self,
-                                    vr::VRActionHandle_t action,
-                                    vr::InputAnalogActionData_t* actionData,
-                                    uint32_t actionDataSize,
-                                    vr::VRInputValueHandle_t restrictToDevice);
-using HookGetAnalogActionDataFn =
-    vr::EVRInputError (__fastcall*)(void* self,
-                                    void* edx,
-                                    vr::VRActionHandle_t action,
-                                    vr::InputAnalogActionData_t* actionData,
-                                    uint32_t actionDataSize,
-                                    vr::VRInputValueHandle_t restrictToDevice);
-
+    vr::EVRInputError(__thiscall*)(void* self,
+                                   vr::VRActionHandle_t action,
+                                   vr::InputAnalogActionData_t* actionData,
+                                   uint32_t actionDataSize,
+                                   vr::VRInputValueHandle_t restrictToDevice);
 using GetDigitalActionDataFn =
-    vr::EVRInputError (__thiscall*)(void* self,
-                                    vr::VRActionHandle_t action,
-                                    vr::InputDigitalActionData_t* actionData,
-                                    uint32_t actionDataSize,
-                                    vr::VRInputValueHandle_t restrictToDevice);
-using HookGetDigitalActionDataFn =
-    vr::EVRInputError (__fastcall*)(void* self,
-                                    void* edx,
-                                    vr::VRActionHandle_t action,
-                                    vr::InputDigitalActionData_t* actionData,
-                                    uint32_t actionDataSize,
-                                    vr::VRInputValueHandle_t restrictToDevice);
-
+    vr::EVRInputError(__thiscall*)(void* self,
+                                   vr::VRActionHandle_t action,
+                                   vr::InputDigitalActionData_t* actionData,
+                                   uint32_t actionDataSize,
+                                   vr::VRInputValueHandle_t restrictToDevice);
 using GetOriginTrackedDeviceInfoFn =
-    vr::EVRInputError (__thiscall*)(void* self,
-                                    vr::VRInputValueHandle_t origin,
-                                    vr::InputOriginInfo_t* originInfo,
-                                    uint32_t originInfoSize);
+    vr::EVRInputError(__thiscall*)(void* self,
+                                   vr::VRInputValueHandle_t origin,
+                                   vr::InputOriginInfo_t* originInfo,
+                                   uint32_t originInfoSize);
 #endif
 
 namespace {
 
 constexpr float kAnalogEpsilon = 0.01f;
+
+// First real payload test:
+// force "move forward" on the left thumbstick analog action found in the log.
+constexpr bool kEnableForwardOverrideTest = true;
+constexpr vr::VRActionHandle_t kMoveAnalogActionHandle =
+    static_cast<vr::VRActionHandle_t>(0x10004b50000002b1ull);
+constexpr vr::VRInputValueHandle_t kLeftHandSourceHandle =
+    static_cast<vr::VRInputValueHandle_t>(0x20004b5000000009ull);
+constexpr float kForcedForwardY = 1.0f;
 
 GetActionSetHandleFn g_originalGetActionSetHandle = nullptr;
 GetActionHandleFn g_originalGetActionHandle = nullptr;
@@ -108,8 +88,7 @@ UpdateActionStateFn g_originalUpdateActionState = nullptr;
 GetAnalogActionDataFn g_originalGetAnalogActionData = nullptr;
 GetDigitalActionDataFn g_originalGetDigitalActionData = nullptr;
 
-// Nur zum Auflösen zusätzlicher Infos beim Logging.
-// Diese Funktion wird NICHT selbst gehookt.
+// For resolving extra origin info during logging only.
 GetOriginTrackedDeviceInfoFn g_originTrackedDeviceInfo = nullptr;
 
 std::mutex g_inputMutex;
@@ -181,6 +160,10 @@ std::string action_name(vr::VRActionHandle_t handle) {
 }
 
 std::string action_set_name(vr::VRActionSetHandle_t handle) {
+    if (handle == vr::k_ulInvalidActionSetHandle) {
+        return "<none>";
+    }
+
     std::lock_guard<std::mutex> lock(g_inputMutex);
     auto it = g_actionSetNames.find(handle);
     if (it != g_actionSetNames.end()) {
@@ -345,6 +328,13 @@ void remember_input_source_name(vr::VRInputValueHandle_t handle, const char* inp
 }
 
 void install_one_hook(void* target, void* detour, void** original, const char* name) {
+    if (!target) {
+        std::ostringstream oss;
+        oss << "[IVRInput] target missing for " << name;
+        log_line(oss.str());
+        return;
+    }
+
     const auto createRes = MH_CreateHook(target, detour, original);
     if (createRes != MH_OK) {
         std::ostringstream oss;
@@ -467,13 +457,14 @@ vr::EVRInputError __fastcall hook_update_action_state(void* self,
         err = g_originalUpdateActionState(self, sets, setSize, setCount);
     }
 
-    if (err == vr::VRInputError_None && sets && setSize >= sizeof(vr::VRActiveActionSet_t)) {
-        if (should_log_action_sets(sets, setCount)) {
-            std::ostringstream oss;
-            oss << "[IVRInput::UpdateActionState]"
-                << format_action_sets(sets, setCount);
-            log_line(oss.str());
-        }
+    if (err == vr::VRInputError_None &&
+        sets &&
+        setSize >= sizeof(vr::VRActiveActionSet_t) &&
+        should_log_action_sets(sets, setCount)) {
+
+        std::ostringstream oss;
+        oss << "[IVRInput::UpdateActionState]" << format_action_sets(sets, setCount);
+        log_line(oss.str());
     }
 
     return err;
@@ -502,6 +493,24 @@ vr::EVRInputError __fastcall hook_get_analog_action_data(void* self,
         return err;
     }
 
+    bool appliedOverride = false;
+
+    if (kEnableForwardOverrideTest &&
+        err == vr::VRInputError_None &&
+        action == kMoveAnalogActionHandle &&
+        restrictToDevice == kLeftHandSourceHandle) {
+
+        actionData->bActive = true;
+        actionData->x = 0.0f;
+        actionData->y = kForcedForwardY;
+        actionData->z = 0.0f;
+        actionData->deltaX = 0.0f;
+        actionData->deltaY = 0.0f;
+        actionData->deltaZ = 0.0f;
+
+        appliedOverride = true;
+    }
+
     const ActionDeviceKey key{ action, restrictToDevice };
     if (!should_log_analog(key, err, *actionData)) {
         return err;
@@ -522,6 +531,10 @@ vr::EVRInputError __fastcall hook_get_analog_action_data(void* self,
         << " dy=" << actionData->deltaY
         << " dz=" << actionData->deltaZ
         << " t=" << actionData->fUpdateTime;
+
+    if (appliedOverride) {
+        oss << " [FORCED_FORWARD_TEST]";
+    }
 
     log_line(oss.str());
     return err;
