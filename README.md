@@ -1,98 +1,107 @@
 # StepVR OpenVR Detour
 
-Minimal OpenVR detour DLL used to intercept and wrap controller input inside a running VR game.
+Minimal OpenVR detour project for injecting locomotion input into VR games.
 
-This project injects a small payload into the game process and hooks the OpenVR controller state function used by the game.
+This project wraps the controller state call already used by the game and modifies the returned input values.
 
-The original function is always called first.
-The returned controller state can then be inspected or modified.
+The goal is simple:
+
+- find the controller state field used for forward movement
+- combine it with custom HID / stepper input
+- write the modified value back
+- return the updated controller state to the game
 
 ---
 
 ## Purpose
 
-Many VR games ignore custom SteamVR drivers or controller roles.
+Many VR games ignore custom SteamVR drivers or special controller roles.
 
 Instead of creating a new device, this project modifies the controller state that the game already reads.
 
-The hook wraps the OpenVR call:
+The hook wraps:
 
 `IVRSystem::GetControllerState`
 
-The detour performs the following steps:
+The detour always:
 
-1. call the original function
-2. capture the returned `VRControllerState_t`
-3. inspect or modify values
-4. return the modified state to the game
+1. calls the original function
+2. captures the returned `VRControllerState_t`
+3. inspects buttons and axis values
+4. modifies the relevant movement value
+5. returns the updated state to the game
 
 ---
 
-## Scope
+## Approach
 
-This repository contains a minimal payload DLL that:
+The OpenVR runtime itself is not replaced.
 
-* obtains a pointer to `IVRSystem`
-* locates `GetControllerState` in the vtable
-* stores the original function pointer
-* installs a detour
-* wraps the original call
-* logs controller state values
+This project works by running a payload DLL inside the target game process and wrapping the real OpenVR controller state call.
 
-Future versions may override controller axes to inject locomotion input.
+Custom HID / stepper input is then merged into the same controller state structure already used by the game.
 
 ---
 
 ## Architecture
 
-Game
-→ OpenVR runtime
-→ `IVRSystem::GetControllerState`
-→ StepVR detour wrapper
-→ original function call
+Game  
+→ OpenVR runtime  
+→ `IVRSystem::GetControllerState`  
+→ StepVR detour wrapper  
+→ original function call  
+→ custom locomotion value merged into `VRControllerState_t`  
 → modified controller state returned to the game
 
-The OpenVR runtime itself is not replaced or proxied.
+---
+
+## Repository Layout
+
+`hooking_library/`  
+payload DLL code
+
+`injector/`  
+companion executable target
+
+`deps/openvr/`  
+OpenVR SDK dependency
+
+`deps/minhook/`  
+MinHook dependency
 
 ---
 
-## Building
+## Components
 
-Requirements:
+### Payload DLL
 
-* Windows
-* Visual Studio 2022
-* CMake 3.20 or newer
+The payload DLL runs inside the target game process.
 
-Basic workflow:
+It is responsible for:
 
-1. configure with CMake
-2. build the Release configuration
-3. produce the payload DLL
+- obtaining a real `IVRSystem*`
+- installing the `GetControllerState` hook
+- reading controller state values
+- merging custom locomotion input
+- returning the modified controller state
 
----
+### Injector EXE
 
-## Testing
-
-1. inject the DLL into the running game process
-2. start the game normally
-3. verify that the log file appears
-4. confirm that controller state calls are captured
-
-If successful, controller axis values will appear in the log.
+The repository also builds a companion executable target used together with the payload DLL.
 
 ---
 
-## Repository Structure
+## Build Requirements
 
-`CMakeLists.txt`
-build configuration
+- Windows
+- Visual Studio 2022
+- CMake 3.20 or newer
 
-`dllmain.cpp`
-payload entry point
+---
 
-`detour_controller_state.cpp`
-OpenVR controller state wrapper
+## Build Output
 
-`shared.h / shared.cpp`
-logging and shared utilities
+The project produces:
+
+- `stepvr_detour.dll`
+- `stepvr_injector.exe`
