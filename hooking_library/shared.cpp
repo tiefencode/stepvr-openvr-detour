@@ -22,6 +22,7 @@ std::atomic<bool> g_vrSystemProcessed{ false };
 void log_line(const std::string& line) {
     if (StdOut != INVALID_HANDLE_VALUE) {
         DWORD written = 0;
+
         WriteFile(
             StdOut,
             line.c_str(),

@@ -15,7 +15,7 @@ namespace stepvr {
 struct HookConfig {
     bool enableDetour = false;
     bool enableAxisOverride = false;
-    uint32_t getControllerStateIndex = 33; // probe value for IVRSystem_019; verify before enabling detour
+    uint32_t getControllerStateIndex = 33;
     int overrideAxisIndex = 0;
     float overrideX = 0.0f;
     float overrideY = 0.8f;

@@ -1,6 +1,7 @@
 #include "detour_input.h"
 
 #include "shared.h"
+#include "forward_ingress.h"
 
 #include "MinHook.h"
 
@@ -72,14 +73,11 @@ namespace {
 
 constexpr float kAnalogEpsilon = 0.01f;
 
-// First real payload test:
-// force "move forward" on the left thumbstick analog action found in the log.
-constexpr bool kEnableForwardOverrideTest = true;
+// Verified in the working log / test run.
 constexpr vr::VRActionHandle_t kMoveAnalogActionHandle =
     static_cast<vr::VRActionHandle_t>(0x10004b50000002b1ull);
 constexpr vr::VRInputValueHandle_t kLeftHandSourceHandle =
     static_cast<vr::VRInputValueHandle_t>(0x20004b5000000009ull);
-constexpr float kForcedForwardY = 1.0f;
 
 GetActionSetHandleFn g_originalGetActionSetHandle = nullptr;
 GetActionHandleFn g_originalGetActionHandle = nullptr;
@@ -88,7 +86,6 @@ UpdateActionStateFn g_originalUpdateActionState = nullptr;
 GetAnalogActionDataFn g_originalGetAnalogActionData = nullptr;
 GetDigitalActionDataFn g_originalGetDigitalActionData = nullptr;
 
-// For resolving extra origin info during logging only.
 GetOriginTrackedDeviceInfoFn g_originTrackedDeviceInfo = nullptr;
 
 std::mutex g_inputMutex;
@@ -494,21 +491,26 @@ vr::EVRInputError __fastcall hook_get_analog_action_data(void* self,
     }
 
     bool appliedOverride = false;
+    ForwardIngressSnapshot ingress{};
 
-    if (kEnableForwardOverrideTest &&
-        err == vr::VRInputError_None &&
+    if (err == vr::VRInputError_None &&
         action == kMoveAnalogActionHandle &&
         restrictToDevice == kLeftHandSourceHandle) {
 
-        actionData->bActive = true;
-        actionData->x = 0.0f;
-        actionData->y = kForcedForwardY;
-        actionData->z = 0.0f;
-        actionData->deltaX = 0.0f;
-        actionData->deltaY = 0.0f;
-        actionData->deltaZ = 0.0f;
+        if (read_forward_ingress_snapshot(ingress) &&
+            ingress.available &&
+            ingress.enabled) {
 
-        appliedOverride = true;
+            actionData->bActive = true;
+            actionData->x = 0.0f;
+            actionData->y = ingress.forwardY;
+            actionData->z = 0.0f;
+            actionData->deltaX = 0.0f;
+            actionData->deltaY = 0.0f;
+            actionData->deltaZ = 0.0f;
+
+            appliedOverride = true;
+        }
     }
 
     const ActionDeviceKey key{ action, restrictToDevice };
@@ -533,7 +535,7 @@ vr::EVRInputError __fastcall hook_get_analog_action_data(void* self,
         << " t=" << actionData->fUpdateTime;
 
     if (appliedOverride) {
-        oss << " [FORCED_FORWARD_TEST]";
+        oss << " [INGRESS_FORWARD seq=" << ingress.seq << "]";
     }
 
     log_line(oss.str());
