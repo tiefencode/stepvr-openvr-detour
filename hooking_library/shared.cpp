@@ -5,8 +5,15 @@
 #include <thread>
 #include <chrono>
 
+#include "detour_controller_state.h"
+
+#include "MinHook.h"
+
+
+
 namespace stepvr {
 
+	HANDLE StdOut = INVALID_HANDLE_VALUE;
 	HookConfig g_config{};
 
 	std::ofstream g_log;
@@ -15,6 +22,13 @@ namespace stepvr {
 	std::atomic<bool> g_vrSystemProcessed{ false };
 
 	void log_line(const std::string& line) {
+
+		if (StdOut != INVALID_HANDLE_VALUE)
+		{
+			WriteFile(StdOut, line.c_str(), line.length(), nullptr, nullptr);
+			WriteFile(StdOut, "\n", 1, nullptr, nullptr);
+		}
+		
 		std::lock_guard<std::mutex> lock(g_logMutex);
 		if (g_log.is_open()) {
 			g_log << line << std::endl;
@@ -29,15 +43,18 @@ namespace stepvr {
 		return p.parent_path().wstring();
 	}
 
-	void initialize_async(HMODULE module) {
-		HANDLE thread = CreateThread(nullptr, 0, init_thread_proc, module, 0, nullptr);
-		if (thread) {
-			CloseHandle(thread);
-		}
-	}
 
-	DWORD WINAPI init_thread_proc(LPVOID param) {
-		HMODULE module = reinterpret_cast<HMODULE>(param);
+	void initialize(HMODULE module)
+	{
+		bool hasConsole = AllocConsole();
+		if (hasConsole)
+		{
+			StdOut = GetStdHandle(STD_OUTPUT_HANDLE);
+		}
+		if (MH_Initialize() != MH_OK)
+		{
+			log_line("=== MINHOOK was not initalized correctly ===");
+		}
 
 		const auto logPath = std::filesystem::path(get_module_dir(module)) / L"stepvr_detour.log";
 		{
@@ -52,7 +69,6 @@ namespace stepvr {
 		}
 
 		g_initialized.store(true);
-		return 0;
 	}
 
 	bool obtain_vr_system_and_prepare() {
@@ -95,7 +111,11 @@ namespace stepvr {
 			return false;
 		}
 
-		inspect_and_optionally_hook(vrSystem);
+		const auto system_vtable = (VR_IVRSystem_FnTable*)(*(void***)vrSystem);
+
+		Install_GetControllerState_Hook(system_vtable);
+
+
 		return true;
 	}
 }

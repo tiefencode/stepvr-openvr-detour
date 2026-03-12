@@ -2,6 +2,7 @@
 
 #include <windows.h>
 #include <openvr.h>
+#include <openvr_capi.h>
 
 #include <atomic>
 #include <cstdint>
@@ -29,10 +30,8 @@ extern std::atomic<bool> g_vrSystemProcessed;
 
 void log_line(const std::string& line);
 std::wstring get_module_dir(HMODULE module);
-void initialize_async(HMODULE module);
-DWORD WINAPI init_thread_proc(LPVOID param);
+void initialize(HMODULE module);
 
 bool obtain_vr_system_and_prepare();
-void inspect_and_optionally_hook(vr::IVRSystem* vrSystem);
 
 }
