@@ -30,8 +30,11 @@ target_compile_definitions(stepvr_detour PRIVATE
   NOMINMAX
 )
 
+add_subdirectory(${CMAKE_SOURCE_DIR}/deps/minhook)
+
 target_link_libraries(stepvr_detour PRIVATE
   user32
+  minhook
 )
 
 set_target_properties(stepvr_detour PROPERTIES
@@ -41,4 +44,5 @@ set_target_properties(stepvr_detour PROPERTIES
 file(GLOB injector_src CONFIGURE_DEPENDS injector/*.cpp) 
 
 add_executable(stepvr_injector ${injector_src})
+
 

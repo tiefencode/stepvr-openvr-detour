@@ -5,97 +5,117 @@
 #include <thread>
 #include <chrono>
 
+#include "detour_controller_state.h"
+
+#include "MinHook.h"
+
+
+
 namespace stepvr {
 
-HookConfig g_config{};
+	HANDLE StdOut = INVALID_HANDLE_VALUE;
+	HookConfig g_config{};
 
-std::ofstream g_log;
-std::mutex g_logMutex;
-std::atomic<bool> g_initialized{false};
-std::atomic<bool> g_vrSystemProcessed{false};
+	std::ofstream g_log;
+	std::mutex g_logMutex;
+	std::atomic<bool> g_initialized{ false };
+	std::atomic<bool> g_vrSystemProcessed{ false };
 
-void log_line(const std::string& line) {
-    std::lock_guard<std::mutex> lock(g_logMutex);
-    if (g_log.is_open()) {
-        g_log << line << std::endl;
-        g_log.flush();
-    }
-}
+	void log_line(const std::string& line) {
 
-std::wstring get_module_dir(HMODULE module) {
-    wchar_t path[MAX_PATH]{};
-    GetModuleFileNameW(module, path, MAX_PATH);
-    std::filesystem::path p(path);
-    return p.parent_path().wstring();
-}
+		if (StdOut != INVALID_HANDLE_VALUE)
+		{
+			WriteFile(StdOut, line.c_str(), line.length(), nullptr, nullptr);
+			WriteFile(StdOut, "\n", 1, nullptr, nullptr);
+		}
+		
+		std::lock_guard<std::mutex> lock(g_logMutex);
+		if (g_log.is_open()) {
+			g_log << line << std::endl;
+			g_log.flush();
+		}
+	}
 
-void initialize_async(HMODULE module) {
-    HANDLE thread = CreateThread(nullptr, 0, init_thread_proc, module, 0, nullptr);
-    if (thread) {
-        CloseHandle(thread);
-    }
-}
+	std::wstring get_module_dir(HMODULE module) {
+		wchar_t path[MAX_PATH]{};
+		GetModuleFileNameW(module, path, MAX_PATH);
+		std::filesystem::path p(path);
+		return p.parent_path().wstring();
+	}
 
-DWORD WINAPI init_thread_proc(LPVOID param) {
-    HMODULE module = reinterpret_cast<HMODULE>(param);
 
-    const auto logPath = std::filesystem::path(get_module_dir(module)) / L"stepvr_detour.log";
-    {
-        std::lock_guard<std::mutex> lock(g_logMutex);
-        g_log.open(logPath.string(), std::ios::out | std::ios::app);
-    }
+	void initialize(HMODULE module)
+	{
+		bool hasConsole = AllocConsole();
+		if (hasConsole)
+		{
+			StdOut = GetStdHandle(STD_OUTPUT_HANDLE);
+		}
+		if (MH_Initialize() != MH_OK)
+		{
+			log_line("=== MINHOOK was not initalized correctly ===");
+		}
 
-    log_line("=== stepvr detour init ===");
+		const auto logPath = std::filesystem::path(get_module_dir(module)) / L"stepvr_detour.log";
+		{
+			std::lock_guard<std::mutex> lock(g_logMutex);
+			g_log.open(logPath.string(), std::ios::out | std::ios::app);
+		}
 
-    if (!obtain_vr_system_and_prepare()) {
-        log_line("failed to obtain IVRSystem");
-    }
+		log_line("=== stepvr detour init ===");
 
-    g_initialized.store(true);
-    return 0;
-}
+		if (!obtain_vr_system_and_prepare()) {
+			log_line("failed to obtain IVRSystem");
+		}
 
-bool obtain_vr_system_and_prepare() {
-    using VR_GetGenericInterface_Fn = void* (__cdecl*)(const char*, vr::EVRInitError*);
+		g_initialized.store(true);
+	}
 
-    HMODULE openvrModule = nullptr;
+	bool obtain_vr_system_and_prepare() {
+		using VR_GetGenericInterface_Fn = void* (__cdecl*)(const char*, vr::EVRInitError*);
 
-    for (int i = 0; i < 100; ++i) {
-        openvrModule = GetModuleHandleW(L"openvr_api.dll");
-        if (openvrModule) {
-            break;
-        }
-        std::this_thread::sleep_for(std::chrono::milliseconds(100));
-    }
+		HMODULE openvrModule = nullptr;
 
-    if (!openvrModule) {
-        log_line("openvr_api.dll not loaded in process");
-        return false;
-    }
+		for (int i = 0; i < 100; ++i) {
+			openvrModule = GetModuleHandleW(L"openvr_api.dll");
+			if (openvrModule) {
+				break;
+			}
+			std::this_thread::sleep_for(std::chrono::milliseconds(100));
+		}
 
-    auto getGenericInterface =
-        reinterpret_cast<VR_GetGenericInterface_Fn>(GetProcAddress(openvrModule, "VR_GetGenericInterface"));
+		if (!openvrModule) {
+			log_line("openvr_api.dll not loaded in process");
+			return false;
+		}
 
-    if (!getGenericInterface) {
-        log_line("VR_GetGenericInterface not found");
-        return false;
-    }
+		auto getGenericInterface =
+			reinterpret_cast<VR_GetGenericInterface_Fn>(GetProcAddress(openvrModule, "VR_GetGenericInterface"));
 
-    vr::EVRInitError err = vr::VRInitError_None;
-    auto* vrSystem = reinterpret_cast<vr::IVRSystem*>(getGenericInterface(vr::IVRSystem_Version, &err));
+		if (!getGenericInterface) {
+			log_line("VR_GetGenericInterface not found");
+			return false;
+		}
 
-    {
-        std::ostringstream oss;
-        oss << "VR_GetGenericInterface(" << vr::IVRSystem_Version << ") -> " << vrSystem
-            << " err=" << static_cast<int>(err);
-        log_line(oss.str());
-    }
+		vr::EVRInitError err = vr::VRInitError_None;
+		auto* vrSystem = reinterpret_cast<vr::IVRSystem*>(getGenericInterface(vr::IVRSystem_Version, &err));
 
-    if (!vrSystem || err != vr::VRInitError_None) {
-        return false;
-    }
+		{
+			std::ostringstream oss;
+			oss << "VR_GetGenericInterface(" << vr::IVRSystem_Version << ") -> " << vrSystem
+				<< " err=" << static_cast<int>(err);
+			log_line(oss.str());
+		}
 
-    inspect_and_optionally_hook(vrSystem);
-    return true;
-}
+		if (!vrSystem || err != vr::VRInitError_None) {
+			return false;
+		}
+
+		const auto system_vtable = (VR_IVRSystem_FnTable*)(*(void***)vrSystem);
+
+		Install_GetControllerState_Hook(system_vtable);
+
+
+		return true;
+	}
 }
