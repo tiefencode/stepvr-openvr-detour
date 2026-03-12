@@ -1,4 +1,4 @@
-cmake_minimum_required(VERSION 4.0)
+cmake_minimum_required(VERSION 3.33)
 project(stepvr_openvr_detour LANGUAGES CXX)
 
 set(CMAKE_CXX_STANDARD 17)
