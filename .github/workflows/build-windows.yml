@@ -19,16 +19,9 @@ jobs:
       - name: setup msbuild
         uses: microsoft/setup-msbuild@v2
 
-      - name: checkout openvr sdk
-        uses: actions/checkout@v5
-        with:
-          repository: ValveSoftware/openvr
-          path: openvr
-
       - name: configure
         shell: cmd
         run: |
-          set OPENVR_SDK_ROOT=%CD%\openvr
           git submodule update --init
           cmake -S . -B build -G "Visual Studio 17 2022" -A x64
 
@@ -42,6 +35,7 @@ jobs:
         run: |
           New-Item -ItemType Directory -Force -Path dist | Out-Null
           Copy-Item build\Release\stepvr_detour.dll dist\stepvr_detour.dll
+          Copy-Item build\Release\stepvr_injector.exe dist\stepvr_injector.exe
           Copy-Item README.md dist\README.md
 
       - name: upload artifact
