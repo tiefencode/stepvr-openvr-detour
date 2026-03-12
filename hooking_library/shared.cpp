@@ -1,11 +1,11 @@
 #include "shared.h"
+#include "detour_controller_state.h"
+#include "detour_input.h"
 
 #include <filesystem>
 #include <sstream>
 #include <thread>
 #include <chrono>
-
-#include "detour_controller_state.h"
 
 #include "MinHook.h"
 
@@ -75,7 +75,6 @@ namespace stepvr {
 		using VR_GetGenericInterface_Fn = void* (__cdecl*)(const char*, vr::EVRInitError*);
 
 		HMODULE openvrModule = nullptr;
-
 		for (int i = 0; i < 100; ++i) {
 			openvrModule = GetModuleHandleW(L"openvr_api.dll");
 			if (openvrModule) {
@@ -97,25 +96,44 @@ namespace stepvr {
 			return false;
 		}
 
-		vr::EVRInitError err = vr::VRInitError_None;
-		auto* vrSystem = reinterpret_cast<vr::IVRSystem*>(getGenericInterface(vr::IVRSystem_Version, &err));
+		bool installedAnyHook = false;
 
 		{
+			vr::EVRInitError err = vr::VRInitError_None;
+			auto* vrSystem = reinterpret_cast<void*>(getGenericInterface(vr::IVRSystem_Version, &err));
+
 			std::ostringstream oss;
 			oss << "VR_GetGenericInterface(" << vr::IVRSystem_Version << ") -> " << vrSystem
 				<< " err=" << static_cast<int>(err);
 			log_line(oss.str());
+
+			if (vrSystem && err == vr::VRInitError_None) {
+				auto* system_vtable = reinterpret_cast<VR_IVRSystem_FnTable*>(*(void***)vrSystem);
+				Install_GetControllerState_Hook(system_vtable);
+				installedAnyHook = true;
+			} else {
+				log_line("failed to obtain IVRSystem");
+			}
 		}
 
-		if (!vrSystem || err != vr::VRInitError_None) {
-			return false;
+		{
+			vr::EVRInitError err = vr::VRInitError_None;
+			auto* vrInput = reinterpret_cast<void*>(getGenericInterface(vr::IVRInput_Version, &err));
+
+			std::ostringstream oss;
+			oss << "VR_GetGenericInterface(" << vr::IVRInput_Version << ") -> " << vrInput
+				<< " err=" << static_cast<int>(err);
+			log_line(oss.str());
+
+			if (vrInput && err == vr::VRInitError_None) {
+				auto* input_vtable = reinterpret_cast<VR_IVRInput_FnTable*>(*(void***)vrInput);
+				Install_IVRInput_Hooks(input_vtable);
+				installedAnyHook = true;
+			} else {
+				log_line("failed to obtain IVRInput");
+			}
 		}
 
-		const auto system_vtable = (VR_IVRSystem_FnTable*)(*(void***)vrSystem);
-
-		Install_GetControllerState_Hook(system_vtable);
-
-
-		return true;
+		return installedAnyHook;
 	}
 }
