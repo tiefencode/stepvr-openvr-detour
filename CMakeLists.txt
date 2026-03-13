@@ -66,7 +66,7 @@ target_compile_definitions(stepvr_xinput_writer PRIVATE
 )
 
 target_link_libraries(stepvr_xinput_writer PRIVATE
-    Xinput.lib
+    winmm
 )
 
 set_target_properties(stepvr_xinput_writer PROPERTIES
