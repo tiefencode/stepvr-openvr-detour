@@ -22,7 +22,7 @@ jobs:
       - name: configure
         shell: cmd
         run: |
-          git submodule update --init
+          git submodule update --init --recursive
           cmake -S . -B build -G "Visual Studio 17 2022" -A x64
 
       - name: build
@@ -36,6 +36,7 @@ jobs:
           New-Item -ItemType Directory -Force -Path dist | Out-Null
           Copy-Item build\Release\stepvr_detour.dll dist\stepvr_detour.dll
           Copy-Item build\Release\stepvr_injector.exe dist\stepvr_injector.exe
+          Copy-Item build\Release\stepvr_xinput_writer.exe dist\stepvr_xinput_writer.exe
           Copy-Item README.md dist\README.md
 
       - name: upload artifact

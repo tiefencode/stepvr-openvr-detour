@@ -10,15 +10,15 @@ namespace stepvr {
 
 namespace {
 
-constexpr wchar_t kForwardIngressMapName[] = L"Local\\StepVRForwardState";
-constexpr uint64_t kReconnectIntervalMs = 1000;
-
 std::mutex g_ingressMutex;
 HANDLE g_forwardIngressMapping = nullptr;
 const void* g_forwardIngressView = nullptr;
 uint64_t g_nextReconnectTick = 0;
 bool g_loggedConnected = false;
 bool g_loggedInvalid = false;
+bool g_loggedStale = false;
+
+constexpr uint64_t kReconnectIntervalMs = 1000;
 
 void close_forward_ingress_locked() {
     if (g_forwardIngressView) {
@@ -83,6 +83,16 @@ bool read_shared_state_locked(ForwardIngressSharedState& state) {
         return false;
     }
 
+    const uint64_t now = GetTickCount64();
+    if (state.writerTickMs == 0 || (now - state.writerTickMs) > kForwardIngressStaleAfterMs) {
+        if (!g_loggedStale) {
+            g_loggedStale = true;
+            log_line("[ForwardIngress] stale writer heartbeat");
+        }
+        return false;
+    }
+
+    g_loggedStale = false;
     return true;
 }
 
