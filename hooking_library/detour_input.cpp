@@ -7,6 +7,7 @@
 
 #include <cmath>
 #include <iomanip>
+#include <cstring>
 #include <mutex>
 #include <sstream>
 #include <string>
@@ -73,11 +74,8 @@ namespace {
 
 constexpr float kAnalogEpsilon = 0.01f;
 
-// Verified in the working log / test run.
-constexpr vr::VRActionHandle_t kMoveAnalogActionHandle =
-    static_cast<vr::VRActionHandle_t>(0x10004b50000002b1ull);
-constexpr vr::VRInputValueHandle_t kLeftHandSourceHandle =
-    static_cast<vr::VRInputValueHandle_t>(0x20004b5000000009ull);
+constexpr const char* kMoveAnalogActionPath = "/actions/default/in/movejoystick";
+constexpr const char* kLeftHandSourcePath = "/user/hand/left";
 
 GetActionSetHandleFn g_originalGetActionSetHandle = nullptr;
 GetActionHandleFn g_originalGetActionHandle = nullptr;
@@ -92,6 +90,9 @@ std::mutex g_inputMutex;
 std::unordered_map<vr::VRActionHandle_t, std::string> g_actionNames;
 std::unordered_map<vr::VRActionSetHandle_t, std::string> g_actionSetNames;
 std::unordered_map<vr::VRInputValueHandle_t, std::string> g_inputSourceNames;
+
+vr::VRActionHandle_t g_moveAnalogActionHandle = vr::k_ulInvalidActionHandle;
+vr::VRInputValueHandle_t g_leftHandSourceHandle = vr::k_ulInvalidInputValueHandle;
 
 struct ActiveActionSetSnapshot {
     vr::VRActionSetHandle_t actionSet = vr::k_ulInvalidActionSetHandle;
@@ -304,6 +305,10 @@ void remember_action_name(vr::VRActionHandle_t handle, const char* actionName) {
 
     std::lock_guard<std::mutex> lock(g_inputMutex);
     g_actionNames[handle] = actionName;
+
+    if (std::strcmp(actionName, kMoveAnalogActionPath) == 0) {
+        g_moveAnalogActionHandle = handle;
+    }
 }
 
 void remember_action_set_name(vr::VRActionSetHandle_t handle, const char* actionSetName) {
@@ -322,6 +327,62 @@ void remember_input_source_name(vr::VRInputValueHandle_t handle, const char* inp
 
     std::lock_guard<std::mutex> lock(g_inputMutex);
     g_inputSourceNames[handle] = inputSourcePath;
+
+    if (std::strcmp(inputSourcePath, kLeftHandSourcePath) == 0) {
+        g_leftHandSourceHandle = handle;
+    }
+}
+
+bool handle_has_action_name(vr::VRActionHandle_t handle, const char* expected) {
+    if (!expected || handle == vr::k_ulInvalidActionHandle) {
+        return false;
+    }
+
+    std::lock_guard<std::mutex> lock(g_inputMutex);
+    auto it = g_actionNames.find(handle);
+    return it != g_actionNames.end() && it->second == expected;
+}
+
+bool handle_has_input_source_name(vr::VRInputValueHandle_t handle, const char* expected) {
+    if (!expected || handle == vr::k_ulInvalidInputValueHandle) {
+        return false;
+    }
+
+    std::lock_guard<std::mutex> lock(g_inputMutex);
+    auto it = g_inputSourceNames.find(handle);
+    return it != g_inputSourceNames.end() && it->second == expected;
+}
+
+bool is_move_analog_action(vr::VRActionHandle_t action) {
+    if (action == vr::k_ulInvalidActionHandle) {
+        return false;
+    }
+
+    {
+        std::lock_guard<std::mutex> lock(g_inputMutex);
+        if (g_moveAnalogActionHandle != vr::k_ulInvalidActionHandle &&
+            action == g_moveAnalogActionHandle) {
+            return true;
+        }
+    }
+
+    return handle_has_action_name(action, kMoveAnalogActionPath);
+}
+
+bool is_left_hand_source(vr::VRInputValueHandle_t source) {
+    if (source == vr::k_ulInvalidInputValueHandle) {
+        return false;
+    }
+
+    {
+        std::lock_guard<std::mutex> lock(g_inputMutex);
+        if (g_leftHandSourceHandle != vr::k_ulInvalidInputValueHandle &&
+            source == g_leftHandSourceHandle) {
+            return true;
+        }
+    }
+
+    return handle_has_input_source_name(source, kLeftHandSourcePath);
 }
 
 void install_one_hook(void* target, void* detour, void** original, const char* name) {
@@ -494,8 +555,8 @@ vr::EVRInputError __fastcall hook_get_analog_action_data(void* self,
     ForwardIngressSnapshot ingress{};
 
     if (err == vr::VRInputError_None &&
-        action == kMoveAnalogActionHandle &&
-        restrictToDevice == kLeftHandSourceHandle) {
+        is_move_analog_action(action) &&
+        is_left_hand_source(restrictToDevice)) {
 
         if (read_forward_ingress_snapshot(ingress) &&
             ingress.available &&
