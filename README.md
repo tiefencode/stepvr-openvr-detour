@@ -1,67 +1,97 @@
 # StepVR OpenVR Detour
 
-Minimal OpenVR detour project for injecting locomotion input into VR games.
+Minimal OpenVR detour project for injecting stepper-based locomotion input into VR games.
 
-This project wraps the controller state call already used by the game and modifies the returned input values.
+This project runs a payload DLL inside the target game process and hooks the OpenVR calls the game already uses.
 
-The goal is simple:
+The current goal is simple:
 
-- find the controller state field used for forward movement
-- combine it with custom HID / stepper input
-- write the modified value back
-- return the updated controller state to the game
+- read forward locomotion input from an external source
+- inject it into the OpenVR input path already used by the game
+- return the modified input to the game
+- avoid creating a separate custom SteamVR device
 
 ---
 
 ## Purpose
 
-Many VR games ignore custom SteamVR drivers or special controller roles.
+Many VR games ignore custom SteamVR drivers or unusual controller roles.
 
-Instead of creating a new device, this project modifies the controller state that the game already reads.
+Instead of creating a new tracked device, this project modifies the OpenVR input data already consumed by the game.
 
-The hook wraps:
+At the moment, the locomotion signal comes from a fitness stepper connected to an ESP32 Atom Lite with a hall sensor.
 
-`IVRSystem::GetControllerState`
-
-The detour always:
-
-1. calls the original function
-2. captures the returned `VRControllerState_t`
-3. inspects buttons and axis values
-4. modifies the relevant movement value
-5. returns the updated state to the game
+The current prototype is focused on a Godzilla game, where the stepper motion fits the movement style well.
 
 ---
 
-## Approach
+## Current Approach
 
 The OpenVR runtime itself is not replaced.
 
-This project works by running a payload DLL inside the target game process and wrapping the real OpenVR controller state call.
+This project injects a payload DLL into the target game process and hooks the relevant OpenVR interfaces from inside the game.
 
-Custom HID / stepper input is then merged into the same controller state structure already used by the game.
+The current input path is primarily based on:
+
+`IVRInput`
+
+More specifically, the project hooks the action-based input flow and overrides the forward movement analog action for the left hand.
+
+The project also still includes a `IVRSystem::GetControllerState` hook for inspection and debugging of raw controller state.
 
 ---
 
-## Architecture
+## Current Input Flow
 
-Game  
-→ OpenVR runtime  
-→ `IVRSystem::GetControllerState`  
-→ StepVR detour wrapper  
-→ original function call  
-→ custom locomotion value merged into `VRControllerState_t`  
-→ modified controller state returned to the game
+External stepper / HID writer  
+→ shared forward ingress state  
+→ payload DLL inside game process  
+→ `IVRInput` detours  
+→ `/actions/default/in/movejoystick` for `/user/hand/left`  
+→ modified analog locomotion returned to the game
+
+---
+
+## What Is Currently Hooked
+
+### IVRInput path
+
+The payload currently hooks:
+
+- `GetActionSetHandle`
+- `GetActionHandle`
+- `GetInputSourceHandle`
+- `UpdateActionState`
+- `GetAnalogActionData`
+- `GetDigitalActionData`
+
+The forward override is applied on:
+
+`/actions/default/in/movejoystick`
+
+restricted to:
+
+`/user/hand/left`
+
+If a valid forward ingress snapshot is available, the DLL replaces the analog action data with the external forward value.
+
+### IVRSystem path
+
+The repository also still hooks:
+
+`IVRSystem::GetControllerState`
+
+This is currently useful for logging, inspection, and reverse engineering of raw controller state, but the main locomotion injection path is now the `IVRInput` action system.
 
 ---
 
 ## Repository Layout
 
 `hooking_library/`  
-payload DLL code
+payload DLL code and OpenVR detours
 
 `injector/`  
-companion executable target
+simple DLL injector executable
 
 `deps/openvr/`  
 OpenVR SDK dependency
@@ -79,29 +109,38 @@ The payload DLL runs inside the target game process.
 
 It is responsible for:
 
-- obtaining a real `IVRSystem*`
-- installing the `GetControllerState` hook
-- reading controller state values
-- merging custom locomotion input
-- returning the modified controller state
+- waiting for `openvr_api.dll`
+- obtaining the real OpenVR interfaces
+- installing the input detours
+- reading the external forward ingress state
+- overriding the matching OpenVR movement action
+- logging observed input values for debugging
 
 ### Injector EXE
 
-The repository also builds a companion executable target used together with the payload DLL.
+The repository also builds a companion injector executable.
+
+It searches for the target process and injects `stepvr_detour.dll` with `LoadLibraryA`.
+
+By default it looks for:
+
+`Monster Titans Playground`
+
+You can also pass a different process name as the first command line argument.
 
 ---
 
 ## Build Requirements
 
 - Windows
-- Visual Studio 2022
-- CMake 3.20 or newer
+- Visual Studio
+- CMake
+- C++17 compiler
 
 ---
 
-## Build Output
+## Build
 
-The project produces:
-
-- `stepvr_detour.dll`
-- `stepvr_injector.exe`
+```bash
+cmake -S . -B build
+cmake --build build --config Release
