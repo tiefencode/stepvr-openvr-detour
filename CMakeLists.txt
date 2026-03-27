@@ -49,6 +49,26 @@ file(GLOB injector_src CONFIGURE_DEPENDS
 
 add_executable(stepvr_injector ${injector_src})
 
+file(GLOB launcher_src CONFIGURE_DEPENDS
+    launcher/*.cpp
+)
+
+add_executable(stepvr_launcher ${launcher_src})
+
+target_include_directories(stepvr_launcher PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}
+)
+
+target_compile_definitions(stepvr_launcher PRIVATE
+    WIN32_LEAN_AND_MEAN
+    NOMINMAX
+)
+
+target_link_libraries(stepvr_launcher PRIVATE
+    winmm
+    psapi
+)
+
 file(GLOB writer_src CONFIGURE_DEPENDS
     writer/*.cpp
     writer/*.h

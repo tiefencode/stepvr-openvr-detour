@@ -19,6 +19,25 @@ std::mutex g_logMutex;
 std::atomic<bool> g_initialized{ false };
 std::atomic<bool> g_vrSystemProcessed{ false };
 
+namespace {
+
+bool payload_console_enabled() {
+    wchar_t buffer[8]{};
+    const DWORD bufferCount = static_cast<DWORD>(sizeof(buffer) / sizeof(buffer[0]));
+    const DWORD length = GetEnvironmentVariableW(
+        L"STEPVR_PAYLOAD_CONSOLE",
+        buffer,
+        bufferCount);
+
+    if (length == 0 || length >= bufferCount) {
+        return false;
+    }
+
+    return buffer[0] != L'0';
+}
+
+} // namespace
+
 void log_line(const std::string& line) {
     if (StdOut != INVALID_HANDLE_VALUE) {
         DWORD written = 0;
@@ -53,9 +72,11 @@ std::wstring get_module_dir(HMODULE module) {
 }
 
 void initialize(HMODULE module) {
-    bool hasConsole = AllocConsole();
-    if (hasConsole) {
-        StdOut = GetStdHandle(STD_OUTPUT_HANDLE);
+    if (payload_console_enabled()) {
+        const bool hasConsole = AllocConsole();
+        if (hasConsole) {
+            StdOut = GetStdHandle(STD_OUTPUT_HANDLE);
+        }
     }
 
     if (MH_Initialize() != MH_OK) {

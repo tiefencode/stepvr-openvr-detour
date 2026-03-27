@@ -90,8 +90,11 @@ This is currently useful for logging, inspection, and reverse engineering of raw
 `hooking_library/`  
 payload DLL code and OpenVR detours
 
+`launcher/`  
+combined runtime host for device polling, shared memory, and DLL injection
+
 `injector/`  
-simple DLL injector executable
+legacy DLL injector executable
 
 `deps/openvr/`  
 OpenVR SDK dependency
@@ -102,6 +105,18 @@ MinHook dependency
 ---
 
 ## Components
+
+### Launcher EXE
+
+The preferred runtime entrypoint is now the launcher executable.
+
+It is responsible for:
+
+- polling the WinMM stepper / joystick device
+- writing the current forward value into shared memory
+- finding the target game process
+- injecting `stepvr_detour.dll`
+- staying alive so the writer heartbeat keeps updating
 
 ### Payload DLL
 
@@ -118,7 +133,7 @@ It is responsible for:
 
 ### Injector EXE
 
-The repository also builds a companion injector executable.
+The repository also still builds a companion injector executable.
 
 It searches for the target process and injects `stepvr_detour.dll` with `LoadLibraryA`.
 
@@ -127,6 +142,8 @@ By default it looks for:
 `Monster Titans Playground`
 
 You can also pass a different process name as the first command line argument.
+
+This tool is now mainly a legacy fallback. The normal path is to run the launcher instead.
 
 ---
 

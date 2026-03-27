@@ -35,6 +35,7 @@ jobs:
         run: |
           New-Item -ItemType Directory -Force -Path dist | Out-Null
           Copy-Item build\Release\stepvr_detour.dll dist\stepvr_detour.dll
+          Copy-Item build\Release\stepvr_launcher.exe dist\stepvr_launcher.exe
           Copy-Item build\Release\stepvr_injector.exe dist\stepvr_injector.exe
           Copy-Item build\Release\stepvr_xinput_writer.exe dist\stepvr_xinput_writer.exe
           Copy-Item README.md dist\README.md
